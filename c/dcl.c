@@ -1,30 +1,30 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-#define N 42
+#define INTERNAL // static inline
 
-char buf[256];
+#define NCHARS 42
+#define BUFSIZE 4096
+
+char buf[BUFSIZE]; // 4KB
 
 char *L, *R, *T;
-char Li[N], Ri[N], Ti[N];
+char Li[NCHARS], Ri[NCHARS], Ti[NCHARS];
 int l, r;
 
+INTERNAL
 char squeeze(char c) {
-    if (c >= 49 && c <= 90)
-        return c - 49;
-    if (c >= 97 && c <= 122 )
-        return c - 97 + 49;
-
+    if (c >= '1' && c <= 'Z')
+        return c - '1';
     exit(1);
 }
 
+INTERNAL
 char unsqueeze(char c) {
-    if (c <= 90 - 49)
-        return c + 49;
-    else
-        return c + 97 - 49;
+    return c + '1';
 }
 
+INTERNAL
 void squeeze_buf(char* buf, int count) {
     for (int i = 0; i < count; i++) {
         buf[i] = squeeze(buf[i]);
@@ -34,60 +34,86 @@ void squeeze_buf(char* buf, int count) {
         exit(1);
 }
 
+INTERNAL
 void unsqueeze_buf(char* buf, int count) {
     for (int i = 0; i < count; i++) {
         buf[i] = unsqueeze(buf[i]);
     }
 }
 
-void inverse_buf(char* dest, const char* src) {
-    for (int i = 0; i < N; i++) {
-        char c = src[i];
+INTERNAL
+void inverse_buf(char* dest, const char* src, int count) {
+    for (int i = 0; i < count; i++) {
+        unsigned char c = src[i];
         if (dest[c] != 0)
             exit(1);
         dest[c] = i + 1;
     }
 
-    for (int i = 0; i < N; i++)
+    for (int i = 0; i < count; i++)
         dest[i] -= 1;
 }
 
+INTERNAL
 void load_lr(char* buf) {
     l = buf[0];
     r = buf[1];
 }
 
-
+INTERNAL
 void show(char* buf, size_t count) {
     while (count > 0) {
         ssize_t e = write(1, buf, count);
 
         if (e < 0)
-            abort();
+            exit(1);
 
         count -= e;
         buf += e;
     }
 }
 
-char Q(int i, char c) {
-    return (c + i) % N;
+INTERNAL
+unsigned char Q(int i, unsigned char c) {
+    return (c + i) % NCHARS;
 }
 
-char Qi(int i, char c) {
-    return (N + c - i) % N;
+INTERNAL
+unsigned char Qi(int i, unsigned char c) {
+    return (NCHARS + c - i) % NCHARS;
 }
 
-char permutate(char c) {
-    return Qi(r,Ri[Q(r, Qi(l,Li[Q(l, T[ Qi(l,L[Q(l, Qi(r,R[Q(r,c)]))])])]))]);
+INTERNAL
+unsigned char permutate(unsigned char c) {
+    c = Q(r, c);
+    c = R[c];
+    c = Qi(r, c);
+
+    c = Q(l, c);
+    c = L[c];
+    c = Qi(l, c);
+
+    c = T[c];
+
+    c = Q(l, c);
+    c = Li[c];
+    c = Qi(l, c);
+
+    c = Q(r, c);
+    c = Ri[c];
+    c = Qi(r, c);
+
+    return c;
 }
 
+INTERNAL
 void update_lr() {
-    r = (r + 1) % N;
+    r = Q(1, r);
     if (r == squeeze('L') || r == squeeze('R') || r == squeeze('T'))
-        l = (l + 1) % N;
+        l = Q(1, l);
 }
 
+INTERNAL
 void process(char* buf, size_t count) {
     squeeze_buf(buf, count);
 
@@ -99,6 +125,7 @@ void process(char* buf, size_t count) {
     unsqueeze_buf(buf, count);
 }
 
+INTERNAL
 ssize_t loop() {
     for (;;) {
         ssize_t count = read(0, buf, sizeof(buf));
@@ -118,9 +145,9 @@ int main(int argc, char **argv) {
     if (argc != 5)
         return -1;
 
-    squeeze_buf(argv[1], N);
-    squeeze_buf(argv[2], N);
-    squeeze_buf(argv[3], N);
+    squeeze_buf(argv[1], NCHARS);
+    squeeze_buf(argv[2], NCHARS);
+    squeeze_buf(argv[3], NCHARS);
 
     squeeze_buf(argv[4], 2);
     load_lr(argv[4]);
@@ -129,9 +156,9 @@ int main(int argc, char **argv) {
     R = argv[2];
     T = argv[3];
 
-    inverse_buf(Li, L);
-    inverse_buf(Ri, R);
-    inverse_buf(Ti, T);
+    inverse_buf(Li, L, NCHARS);
+    inverse_buf(Ri, R, NCHARS);
+    inverse_buf(Ti, T, NCHARS);
 
     return loop();
 }

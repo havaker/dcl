@@ -4,7 +4,7 @@ dcl-c: .build/dcl-c.o
 	cc -o dcl-c .build/dcl-c.o
 
 .build/dcl-c.o: c/dcl.c
-	cc -c c/dcl.c -o .build/dcl-c.o
+	cc -Wall -c c/dcl.c -o .build/dcl-c.o
 
 dcl: .build/dcl.o
 	ld -o dcl .build/dcl.o
