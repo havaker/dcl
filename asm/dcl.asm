@@ -61,6 +61,25 @@ inverse_buf_loop:
 	jne inverse_buf_loop
 	ret
 
+; rdi - adres src
+; nie modyfikuje argumentów
+validate_cycles:
+	xor eax, eax
+validate_cycles_loop:
+
+	movzx ecx, byte [rdi + rax]
+	movzx edx, byte [rdi + rcx]
+
+	cmp eax, edx
+	jne abort
+	cmp eax, ecx
+	je abort
+
+	inc eax
+	cmp eax, 42
+	jne validate_cycles_loop
+	ret
+
 _start:
 	; check argument count
 	cmp dword [rsp], 5
@@ -105,6 +124,7 @@ _start:
 	mov rdi, [T]
 	mov rsi, Ti
 	call inverse_buf
+	call validate_cycles
 
 	jmp exit
 
