@@ -5,6 +5,7 @@ const char* acceptable = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 #include <stdio.h>
 
 int main(int argc, char **argv) {
+    srand(time(0));
     int n = 512;
     if (argc > 1)
         n = atoi(argv[1]);

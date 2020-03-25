@@ -115,14 +115,10 @@ void update_lr() {
 
 INTERNAL
 void process(char* buf, size_t count) {
-    squeeze_buf(buf, count);
-
     for (int i = 0; i < count; i++) {
         update_lr();
-        buf[i] = permutate(buf[i]);
+        buf[i] = unsqueeze(permutate(squeeze(buf[i])));
     }
-
-    unsqueeze_buf(buf, count);
 }
 
 INTERNAL

@@ -3,7 +3,7 @@ SYS_WRITE equ 1
 SYS_EXIT  equ 60
 STDIN     equ 0
 STDOUT    equ 1
-BUFSIZE   equ 4096
+BUFSIZE   equ 64
 CHARNUM   equ 42
 TABSIZE   equ CHARNUM*2
 
@@ -186,6 +186,10 @@ process_loop:
 	inc eax
 	cmp eax, edi
 	jne process_loop
+
+	mov dword [key], r8d; l
+	mov dword [key + 4], r9d ; r
+
 	ret
 
 ; rdi - count
