@@ -26,6 +26,7 @@ Ti: times 42 db 0xff
 
 section .text
 
+
 ; rdi - adres bufora
 ; rsi - spodziewana długość bufora bez znaku \0
 ; nie modyfikuje argumentów
@@ -38,9 +39,10 @@ squeeze_buf_loop:
 	inc eax
 	jmp squeeze_buf_loop
 squeeze_buf_end:
-	test byte [rdi + rsi], 0
+	cmp byte [rdi + rsi], 0
 	jne abort
 	ret
+
 
 ; rdi - adres src
 ; rsi - adres dst
@@ -58,7 +60,6 @@ inverse_buf_loop:
 	cmp eax, 42
 	jne inverse_buf_loop
 	ret
-
 
 _start:
 	; check argument count
