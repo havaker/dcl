@@ -4,6 +4,8 @@ SYS_EXIT  equ 60
 STDIN     equ 0
 STDOUT    equ 1
 BUFSIZE   equ 4096
+CHARNUM   equ 42
+TABSIZE   equ CHARNUM*2
 
 global _start
 
@@ -17,18 +19,25 @@ global _start
 	add %1, 0x31
 %endmacro
 
-; przerobic na bufory
+;%macro  Q 1 2
+;	add %2, %1
+;	cmp %2, 42
+;	jb %%end
+;	sub %2, 42
+;%%end:
+;%endmacro
+
 section .bss
 buf: resb BUFSIZE
-L: resq 42
-R: resq 42
-T: resq 42
-key: resb 2
+L:   resd TABSIZE
+R:   resd TABSIZE
+T:   resd TABSIZE
+key: resd 2
 
 section .data
-Li: times 42 db 0xff
-Ri: times 42 db 0xff
-Ti: times 42 db 0xff
+Li: times TABSIZE dd 0xff
+Ri: times TABSIZE dd 0xff
+Ti: times TABSIZE dd 0xff
 
 section .text
 
@@ -44,7 +53,7 @@ squeeze_buf_loop:
 
 	movzx ecx, byte [rdi + rax]
 	squeeze ecx
-	mov byte [rdx + rax], cl
+	mov dword [rdx + rax * 4], ecx
 
 	inc eax
 	jmp squeeze_buf_loop
@@ -61,13 +70,13 @@ inverse_buf:
 	xor eax, eax
 inverse_buf_loop:
 
-	movzx ecx, byte [rdi + rax]
-	cmp byte [rsi + rcx], 0xff
+	mov ecx, [rdi + rax * 4]
+	cmp dword [rsi + rcx * 4], 0xff
 	jne abort
-	mov byte [rsi + rcx], al
+	mov [rsi + rcx * 4], eax
 
 	inc eax
-	cmp eax, 42
+	cmp eax, CHARNUM
 	jne inverse_buf_loop
 	ret
 
@@ -77,8 +86,8 @@ validate_cycles:
 	xor eax, eax
 validate_cycles_loop:
 
-	movzx ecx, byte [rdi + rax]
-	movzx edx, byte [rdi + rcx]
+	mov ecx, [rdi + rax * 4]
+	mov edx, [rdi + rcx * 4]
 
 	cmp eax, edx
 	jne abort
@@ -86,9 +95,23 @@ validate_cycles_loop:
 	je abort
 
 	inc eax
-	cmp eax, 42
+	cmp eax, CHARNUM
 	jne validate_cycles_loop
 	ret
+
+; rdi - adres src
+repeat_buf:
+	xor eax, eax
+repeat_buf_loop:
+
+	mov ecx, [rdi + rax * 4]
+	mov [rdi + rax * 4 + CHARNUM*4], ecx
+
+	inc eax
+	cmp eax, CHARNUM
+	jne repeat_buf_loop
+	ret
+
 
 ; rdi - count
 process:
@@ -180,6 +203,19 @@ _start:
 	mov rsi, Ti
 	call inverse_buf
 	call validate_cycles
+
+	mov rdi, L
+	call repeat_buf
+	mov rdi, Li
+	call repeat_buf
+	mov rdi, R
+	call repeat_buf
+	mov rdi, Ri
+	call repeat_buf
+	mov rdi, T
+	call repeat_buf
+	mov rdi, Ti
+	call repeat_buf
 
 main_loop:
 	; read string from stdin to buf
