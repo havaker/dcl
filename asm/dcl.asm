@@ -19,6 +19,21 @@ global _start
 	add %1, 0x31
 %endmacro
 
+%macro  incmod 2
+	add %1, %2
+	cmp %1, CHARNUM
+	jb %%end
+	sub %1, CHARNUM
+%%end:
+%endmacro
+
+%macro fastmod 1
+	cmp %1, CHARNUM
+	jb %%end
+	sub %1, CHARNUM
+%%end:
+%endmacro
+
 ;%macro  Q 1 2
 ;	add %2, %1
 ;	cmp %2, 42
@@ -29,15 +44,15 @@ global _start
 
 section .bss
 buf: resb BUFSIZE
-L:   resd TABSIZE
+L:   resd TABSIZE + CHARNUM
 R:   resd TABSIZE
 T:   resd TABSIZE
 key: resd 2
 
 section .data
-Li: times TABSIZE dd 0xff
-Ri: times TABSIZE dd 0xff
-Ti: times TABSIZE dd 0xff
+Li: times TABSIZE			dd 0xff
+Ri: times TABSIZE + CHARNUM dd 0xff
+Ti: times TABSIZE			dd 0xff
 
 section .text
 
@@ -116,10 +131,54 @@ repeat_buf_loop:
 ; rdi - count
 process:
 	xor eax, eax
+	mov r8d, dword [key] ; l
+	mov r9d, dword [key + 4] ; r
 process_loop:
 
 	movzx ecx, byte [buf + rax] ; get byte from buffer
 	squeeze ecx
+
+	incmod r8d, 1
+
+	; if (r9d == 27 || r9d == 33 || r9d == 35) ebx := 1 else ebx := 0
+	xor r10d, r10d
+	cmp r8d, 27
+	sete r10b
+
+	xor r11d, r11d
+	cmp r8b, 33
+	sete r11b
+	or r10d, r11d
+
+	xor r11d, r11d
+	cmp r8b, 35
+	sete r11b
+	or r10d, r11d
+
+	incmod r9d, r10d
+
+	add ecx, r8d
+	mov ecx, [R + ecx * 4]
+	add ecx, CHARNUM
+	sub ecx, r8d
+
+	add ecx, r9d
+	mov ecx, [L + ecx * 4]
+	add ecx, CHARNUM
+	sub ecx, r9d
+
+	mov ecx, [T + ecx * 4]
+
+	add ecx, r9d
+	mov ecx, [Li + ecx * 4]
+	add ecx, CHARNUM
+	sub ecx, r9d
+
+	add ecx, r8d
+	mov ecx, [Ri + ecx * 4]
+	add ecx, CHARNUM
+	sub ecx, r8d
+	fastmod ecx
 
 	unsqueeze ecx
 	mov byte [buf + rax], cl
@@ -206,11 +265,15 @@ _start:
 
 	mov rdi, L
 	call repeat_buf
+	mov rdi, L + CHARNUM * 4
+	call repeat_buf
 	mov rdi, Li
 	call repeat_buf
 	mov rdi, R
 	call repeat_buf
 	mov rdi, Ri
+	call repeat_buf
+	mov rdi, Ri + CHARNUM * 4
 	call repeat_buf
 	mov rdi, T
 	call repeat_buf
