@@ -3,7 +3,7 @@ SYS_WRITE equ 1
 SYS_EXIT  equ 60
 STDIN     equ 0
 STDOUT    equ 1
-BUFSIZE   equ 64
+BUFSIZE   equ 4096
 CHARNUM   equ 42
 TABSIZE   equ CHARNUM*2
 
@@ -12,7 +12,7 @@ global _start
 %macro  squeeze 1
 	sub %1, 0x31
 	cmp %1, 0x29
-	ja abort
+	ja exit_failure
 %endmacro
 
 %macro  unsqueeze 1
@@ -21,74 +21,85 @@ global _start
 
 %macro  incmod 2
 	add %1, %2
-	cmp %1, CHARNUM
-	jb %%end
-	sub %1, CHARNUM
-%%end:
+	fastmod %1
 %endmacro
 
 %macro fastmod 1
 	cmp %1, CHARNUM
 	jb %%end
 	sub %1, CHARNUM
-%%end:
+	%%end:
 %endmacro
-
-;%macro  Q 1 2
-;	add %2, %1
-;	cmp %2, 42
-;	jb %%end
-;	sub %2, 42
-;%%end:
-;%endmacro
 
 section .bss
 buf: resb BUFSIZE
 L:   resd TABSIZE + CHARNUM
 R:   resd TABSIZE
 T:   resd TABSIZE
+Li:  resd TABSIZE
+Ri:  resd TABSIZE + CHARNUM
+Ti:  resd TABSIZE
 key: resd 2
 
-section .data
-Li: times TABSIZE			dd 0xff
-Ri: times TABSIZE + CHARNUM dd 0xff
-Ti: times TABSIZE			dd 0xff
 
 section .text
 
-; rdi - adres src
-; rsi - spodziewana długość bufora bez znaku \0
-; rdx - adres dst
-; nie modyfikuje argumentów
-squeeze_buf:
-	xor eax, eax ; użyj eax jako licznika pętli
-squeeze_buf_loop:
-	cmp esi, eax ; jeśli esi >= eax to skończ pętlę
-	jle squeeze_buf_end
+; parses given string as rotor data and saves it in dword array
+; rsi - source string address
+; rdi - destination dword array address
+; rdx - expected string length
+; does not modify arguments
+; modifies value of rax, rcx
+parse_buf:
+	xor eax, eax ; use eax as loop counter
+parse_buf_loop:
+	cmp edx, eax ; end loop if esi >= eax
+	jle parse_buf_end
 
-	movzx ecx, byte [rdi + rax]
-	squeeze ecx
-	mov dword [rdx + rax * 4], ecx
+	movzx ecx, byte [rsi + rax] ; copy byte from source string
+	squeeze ecx ; verify and transform
+	mov dword [rdi + rax * 4], ecx ; save it in destination string
 
 	inc eax
-	jmp squeeze_buf_loop
-squeeze_buf_end:
-	cmp byte [rdi + rsi], 0
-	jne abort
+	jmp parse_buf_loop
+parse_buf_end:
+	; check if source string is null-terminated
+	cmp byte [rsi + rdx], 0
+	jne exit_failure
 	ret
 
+; fills dword array of length CHARNUM with sepcified value
+; rdi - destination dword array adress
+; rdx - value
+; does not modify arguments
+; modifies value of rax
+fill_buf:
+	xor eax, eax ; use eax as loop counter
+fill_buf_loop:
+	mov [rdi + rax * 4], edx
+	inc eax
+	cmp eax, CHARNUM
+	jne fill_buf_loop
+	ret
 
-; rdi - adres src
-; rsi - adres dst
-; nie modyfikuje argumentów
+; calculates inverse of given permutation of length CHARNUM
+; rsi - source dword array address
+; rdi - destination dword array adress
+; does not modify arguments
+; modifies value of rax, rcx, rdx
 inverse_buf:
-	xor eax, eax
+	; fill buffer with 0xff value
+	mov edx, 0xff
+	call fill_buf
+
+	xor eax, eax ; use eax as loop counter
 inverse_buf_loop:
 
-	mov ecx, [rdi + rax * 4]
-	cmp dword [rsi + rcx * 4], 0xff
-	jne abort
-	mov [rsi + rcx * 4], eax
+	mov ecx, [rsi + rax * 4] ; ecx is currently processed value
+	; if destination[ecx] != 0xff source must invalid, exit failure
+	cmp dword [rdi + rcx * 4], 0xff
+	jne exit_failure
+	mov [rdi + rcx * 4], eax
 
 	inc eax
 	cmp eax, CHARNUM
@@ -105,9 +116,9 @@ validate_cycles_loop:
 	mov edx, [rdi + rcx * 4]
 
 	cmp eax, edx
-	jne abort
+	jne exit_failure
 	cmp eax, ecx
-	je abort
+	je exit_failure
 
 	inc eax
 	cmp eax, CHARNUM
@@ -211,7 +222,7 @@ show:
 	pop rdi
 
 	cmp rax, 0
-	jl abort
+	jl exit_failure
 
 	sub rdi, rax
 	add rsi, rax
@@ -223,47 +234,36 @@ show_end:
 _start:
 	; check argument count
 	cmp dword [rsp], 5
-	jne abort
+	jne exit_failure
 
-	lea rbp, [rsp + 8 * 2] ; address of argv[1]
-
-	mov rdi, [rbp] ; load argv[1] to rdi
-	mov rsi, 42
-	mov rdx, L
-	call squeeze_buf
-
-	add rbp, 8
-	mov rdi, [rbp]
-	mov rdx, R
-	call squeeze_buf
-
-	add rbp, 8
-	mov rdi, [rbp]
-	mov rdx, T
-	call squeeze_buf
-
-	add rbp, 8
-	mov rdi, [rbp]
-	mov rsi, 2
-	mov rdx, key
-	call squeeze_buf
-
-	; load l r
-;	mov al, [rdi]
-;	mov cl, [rdi + 1]
-;	mov [l], al
-;	mov [r], cl
-
+	mov rsi, [rsp + 8 * 2] ; load argv[1] to rdi
 	mov rdi, L
-	mov rsi, Li
-	call inverse_buf
+	mov rdx, 42
+	call parse_buf
 
+	mov rsi, [rsp + 8 * 3]
 	mov rdi, R
-	mov rsi, Ri
+	call parse_buf
+
+	mov rsi, [rsp + 8 * 4]
+	mov rdi, T
+	call parse_buf
+
+	mov rsi, [rsp + 8 * 5]
+	mov rdi, key
+	mov rdx, 2
+	call parse_buf
+
+	mov rsi, L
+	mov rdi, Li
 	call inverse_buf
 
-	mov rdi, T
-	mov rsi, Ti
+	mov rsi, R
+	mov rdi, Ri
+	call inverse_buf
+
+	mov rsi, T
+	mov rdi, Ti
 	call inverse_buf
 	call validate_cycles
 
@@ -294,8 +294,8 @@ main_loop:
 
 	; check rax for return status
 	cmp rax, 0
-	je exit ; if status == 0 exit normally
-	jl abort ; if status < 0, then abort
+	je exit_success ; if status == 0 exit normally
+	jl exit_failure ; if status < 0, then exit with non zero code
 
 	mov rdi, rax ; ustaw argument funkcji process
 	call process
@@ -305,12 +305,12 @@ main_loop:
 
 	jmp main_loop
 
-exit:
+exit_success:
     mov eax, SYS_EXIT
     xor edi, edi
     syscall
 
-abort:
+exit_failure:
     mov eax, SYS_EXIT
     mov edi, 1
     syscall
