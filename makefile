@@ -10,7 +10,7 @@ dcl: .build/dcl.o
 	ld -o dcl .build/dcl.o
 
 .build/dcl.o: asm/dcl.asm
-	nasm -g -F dwarf -f elf64 -o .build/dcl.o asm/dcl.asm
+	nasm -f elf64 -w+all -w+error -o .build/dcl.o asm/dcl.asm
 
 generate: .build/generate.o
 	cc -o generate .build/generate.o
