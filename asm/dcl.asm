@@ -13,6 +13,7 @@ TABSIZE   equ CHARNUM*2
 ; describe process
 ; magic values in process
 ; magic values in macros
+; dont do inverse of T
 
 global _start
 
@@ -225,9 +226,6 @@ _start:
 	mov rsi, T
 	call repeat_buf
 
-	mov rsi, Ti
-	call repeat_buf
-
 	; extend buffers Li, R, T, Ti, in a way that buf[i] == buf[i + CHARNUM]
 	; and buf[i] == buf[i + 2 * CHARNUM]
 	mov rsi, L
@@ -276,46 +274,46 @@ process_loop:
 	movzx ecx, byte [buf + rax] ; get byte from buffer
 	squeeze ecx
 
-	incmod r14d, 1
+	incmod r15d, 1
 
 	; if (r15d == 27 || r15d == 33 || r15d == 35) ebx := 1 else ebx := 0
 	xor r10d, r10d
-	cmp r14d, 27
+	cmp r15d, 27
 	sete r10b
 
 	xor r11d, r11d
-	cmp r14b, 33
+	cmp r15b, 33
 	sete r11b
 	or r10d, r11d
 
 	xor r11d, r11d
-	cmp r14b, 35
+	cmp r15b, 35
 	sete r11b
 	or r10d, r11d
 
-	incmod r15d, r10d
-
-	add ecx, r14d
-	mov ecx, [R + ecx * 4]
-	add ecx, CHARNUM
-	sub ecx, r14d
+	incmod r14d, r10d
 
 	add ecx, r15d
-	mov ecx, [L + ecx * 4]
+	mov ecx, [R + ecx * 4]
 	add ecx, CHARNUM
 	sub ecx, r15d
+
+	add ecx, r14d
+	mov ecx, [L + ecx * 4]
+	add ecx, CHARNUM
+	sub ecx, r14d
 
 	mov ecx, [T + ecx * 4]
 
-	add ecx, r15d
+	add ecx, r14d
 	mov ecx, [Li + ecx * 4]
 	add ecx, CHARNUM
-	sub ecx, r15d
+	sub ecx, r14d
 
-	add ecx, r14d
+	add ecx, r15d
 	mov ecx, [Ri + ecx * 4]
 	add ecx, CHARNUM
-	sub ecx, r14d
+	sub ecx, r15d
 	fastmod ecx
 
 	unsqueeze ecx
