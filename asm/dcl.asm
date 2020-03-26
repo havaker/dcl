@@ -11,6 +11,8 @@ TABSIZE   equ CHARNUM*2
 ; describe macros
 ; rewrite show
 ; describe process
+; magic values in process
+; magic values in macros
 
 global _start
 
@@ -38,12 +40,12 @@ global _start
 
 section .bss
 buf: resb BUFSIZE
-L:   resd TABSIZE + CHARNUM
-R:   resd TABSIZE
-T:   resd TABSIZE
-Li:  resd TABSIZE
-Ri:  resd TABSIZE + CHARNUM
-Ti:  resd TABSIZE
+L:   resd 3 * CHARNUM
+R:   resd 2 * CHARNUM
+T:   resd 2 * CHARNUM
+Li:  resd 2 * CHARNUM
+Ri:  resd 3 * CHARNUM
+Ti:  resd 2 * CHARNUM
 key: resd 2
 
 
