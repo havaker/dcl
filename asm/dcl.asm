@@ -1,3 +1,9 @@
+global _start
+
+; TODO
+; dont do inverse of T?
+; align stack before syscall?
+
 SYS_READ   equ 0
 SYS_WRITE  equ 1
 SYS_EXIT   equ 60
@@ -8,13 +14,6 @@ CHARNUM    equ 42
 SQUEEZED_L equ 'L'-'1'
 SQUEEZED_R equ 'R'-'1'
 SQUEEZED_T equ 'T'-'1'
-
-; TODO
-; rewrite show
-; dont do inverse of T?
-; use loop instruction?
-
-global _start
 
 ; checks if char is in range ['1'; 'Z'] and subtracts '1'
 ; argument is modified to be in range [0; CHARNUM)
@@ -38,7 +37,7 @@ global _start
 	fastmod %1
 %endmacro
 
-; computes (argument % CHARNUM)
+; computes argument % CHARNUM
 ; stores result in argument
 ; argument should be less than 2 * CHARNUM
 %macro fastmod 1
@@ -50,16 +49,117 @@ global _start
 
 section .bss
 
-buf: resb BUFSIZE
-L:   resd 3 * CHARNUM
-R:   resd 2 * CHARNUM
-T:   resd 2 * CHARNUM
-Li:  resd 2 * CHARNUM
-Ri:  resd 3 * CHARNUM
+buf: resb BUFSIZE ; buffer used for io operations
+
+; arrays holding informations about rotors
+L:   resd 3*CHARNUM
+R:   resd 2*CHARNUM
+T:   resd 2*CHARNUM
+Li:  resd 2*CHARNUM
+Ri:  resd 3*CHARNUM
+
+; array holding info about key
 key: resd 2
 
-
 section .text
+
+_start:
+	; check argument count
+	cmp qword [rsp], 5
+	jne exit_failure
+
+	; load and parse first argument (argv[1]) as rotor L
+	mov rsi, [rsp + 8 * 2]
+	mov rdi, L
+	mov rdx, CHARNUM ; set expected length
+	call parse_buf
+
+	; load and parse second argument (argv[2]) as rotor R
+	; previous parse_buf did not modify rdx, no need to mov again
+	mov rsi, [rsp + 8 * 3]
+	mov rdi, R
+	call parse_buf
+
+	; load and parse third argument (argv[3]) as rotor T
+	; previous parse_buf did not modify rdx, no need to mov again
+	mov rsi, [rsp + 8 * 4]
+	mov rdi, T
+	call parse_buf
+
+	; load and parse fourth argument (argv[4]) as key (with a of length 2)
+	mov rsi, [rsp + 8 * 5]
+	mov rdi, key
+	mov rdx, 2 ; set expected length
+	call parse_buf
+
+	; calculate inverse of rotor L and save it into Li
+	mov rsi, L
+	mov rdi, Li
+	call inverse_buf
+
+	; calculate inverse of rotor T to validate using Ri helper buffer
+	;mov rsi, T
+	;mov rdi, Ri
+	;call inverse_buf
+
+	; calculate inverse of rotor R and save it into Ri
+	mov rsi, R
+	mov rdi, Ri
+	call inverse_buf
+
+	; validate cycles of rotor T
+	mov rsi, T
+	call validate_cycles
+
+	; extend buffers Li, R, T, Ti using repeat_buf, in a way
+	; that buf[i] == buf[i + CHARNUM], i ∈  [0, CHARNUM)
+	mov rsi, Li
+	mov rdx, CHARNUM
+	call repeat_buf
+	mov rsi, R ; previous repeat_buf did not modify rdx
+	call repeat_buf
+	mov rsi, T ; previous repeat_buf did not modify rdx
+	call repeat_buf
+
+	; extend buffers Li, R, T, Ti using repeat_buf, in a way
+	; that buf[i] == buf[i + CHARNUM] and buf[i] == buf[i + 2 * CHARNUM]
+	mov rsi, L
+	mov rdx, CHARNUM * 2
+	call repeat_buf
+	mov rsi, Ri ; previous repeat_buf did not modify rdx
+	call repeat_buf
+
+	; by extending rotor buffers in such way number of modulo operations
+	; in later permutation processing can be reduced
+
+	; load key into persistent registers
+	mov r14d, dword [key] ; l
+	mov r15d, dword [key + 4] ; r
+
+main_loop:
+	; read string from stdin to buf
+	mov eax, SYS_READ
+	mov edi, STDIN
+	mov rsi, buf
+	mov rdx, BUFSIZE
+	syscall
+
+	; check rax for return status
+	cmp rax, 0
+	je exit_success ; if status == 0 exit normally
+	jl exit_failure ; if status < 0, then exit with non zero code
+	; if status > 0, then rax contains info about count of read bytes
+
+	; process rax bytes from buff
+	mov rdx, rax
+	call process
+
+	; display rax bytes from buf
+	; no need to fill rax, as process does not modify arguments
+	mov rsi, buf
+	call show
+
+	jmp main_loop
 
 ; parses given string as rotor data and saves it in dword array
 ; rsi - source string address
@@ -105,7 +205,7 @@ fill_buf_loop:
 ; does not modify arguments
 ; modifies value of rax, rcx, rdx
 inverse_buf:
-	; fill buffer with 0xff value
+	; fill destination buffer with 0xff value
 	mov edx, 0xff
 	call fill_buf
 
@@ -174,105 +274,6 @@ repeat_buf:
 	lea rdi, [rsi + CHARNUM * 4]
 	call dwordcpy
 	ret
-
-_start:
-	; check argument count
-	cmp qword [rsp], 5
-	jne exit_failure
-
-	; load and parse first argument (argv[1]) as rotor L
-	mov rsi, [rsp + 8 * 2]
-	mov rdi, L
-	mov rdx, CHARNUM ; set expected length
-	call parse_buf
-
-	; load and parse second argument (argv[2]) as rotor R
-	; previous parse_buf did not modify rdx, no need to mov again
-	mov rsi, [rsp + 8 * 3]
-	mov rdi, R
-	call parse_buf
-
-	; load and parse third argument (argv[3]) as rotor T
-	; previous parse_buf did not modify rdx, no need to mov again
-	mov rsi, [rsp + 8 * 4]
-	mov rdi, T
-	call parse_buf
-
-	; load and parse fourth argument (argv[4]) as key (with a of length 2)
-	mov rsi, [rsp + 8 * 5]
-	mov rdi, key
-	mov rdx, 2 ; set expected length
-	call parse_buf
-
-	; calculate inverse of rotor L and save it into Li
-	mov rsi, L
-	mov rdi, Li
-	call inverse_buf
-
-	; calculate inverse of rotor T to validate using Ri helper buffer
-	;mov rsi, T
-	;mov rdi, Ri
-	;call inverse_buf
-
-	; calculate inverse of rotor R and save it into Ri
-	mov rsi, R
-	mov rdi, Ri
-	call inverse_buf
-
-	; validate cycles of rotor T
-	mov rsi, T
-	call validate_cycles
-
-
-	; extend buffers Li, R, T, Ti using repeat_buf, in a way
-	; that buf[i] == buf[i + CHARNUM], i ∈  [0, CHARNUM)
-	mov rsi, Li
-	mov rdx, CHARNUM
-	call repeat_buf
-	mov rsi, R ; previous repeat_buf did not modify rdx
-	call repeat_buf
-	mov rsi, T ; previous repeat_buf did not modify rdx
-	call repeat_buf
-
-	; extend buffers Li, R, T, Ti using repeat_buf, in a way
-	; that buf[i] == buf[i + CHARNUM] and buf[i] == buf[i + 2 * CHARNUM]
-	mov rsi, L
-	mov rdx, CHARNUM * 2
-	call repeat_buf
-	mov rsi, Ri ; previous repeat_buf did not modify rdx
-	call repeat_buf
-
-	; by extending rotor buffers in such way number of modulo operations
-	; in later permutation processing can be reduced
-
-	; load key into persistent registers
-	mov r14d, dword [key] ; l
-	mov r15d, dword [key + 4] ; r
-
-main_loop:
-	; read string from stdin to buf
-	mov eax, SYS_READ
-	mov edi, STDIN
-	mov rsi, buf
-	mov rdx, BUFSIZE
-	syscall
-
-	; check rax for return status
-	cmp rax, 0
-	je exit_success ; if status == 0 exit normally
-	jl exit_failure ; if status < 0, then exit with non zero code
-	; if status > 0, then rax contains info about count of read bytes
-
-	; process rax bytes from buff
-	mov rdx, rax
-	call process
-
-	; display rax bytes from buf
-	mov rdi, rax
-	mov rsi, buf
-	call show
-
-	jmp main_loop
 
 ; encrypt string in buf
 ; rdx - string length
@@ -350,42 +351,50 @@ process_loop:
 	inc eax
 	cmp eax, edx
 	jne process_loop
-
 	ret
 
-; rdi - count
-; rsi - buffer
+; writes string of given size to stdout
+; rsi - source string
+; rdx - byte count
+; does syscall
+; modifies arguments
 show:
-	test rdi, rdi
+	test rdx, rdx
 	je show_end
 
-	mov rdx, rdi ; set count parameter
-
-	push rdi
+	; save rdx, rsi
+	push rdx
 	push rsi
 
+	; make write syscall
+	; rdx already filled with count
+	; rsi already filled with buf address
 	mov eax, SYS_WRITE
 	mov edi, STDOUT
 	syscall
 
+	; load rdx, rsi
 	pop rsi
-	pop rdi
+	pop rdx
 
+	; exit failure if syscall returned error
 	cmp rax, 0
 	jl exit_failure
 
-	sub rdi, rax
-	add rsi, rax
+	sub rdx, rax ; decrease count
+	add rsi, rax ; move string ptr
 
-	jmp show
+	jmp show ; loop
 show_end:
 	ret
 
+; exit with 0 return code
 exit_success:
     mov eax, SYS_EXIT
     xor edi, edi
     syscall
 
+; exit with non-zero return code
 exit_failure:
     mov eax, SYS_EXIT
     mov edi, 1
