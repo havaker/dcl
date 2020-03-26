@@ -1,37 +1,46 @@
-SYS_READ  equ 0
-SYS_WRITE equ 1
-SYS_EXIT  equ 60
-STDIN     equ 0
-STDOUT    equ 1
-BUFSIZE   equ 4096
-CHARNUM   equ 42
-TABSIZE   equ CHARNUM*2
+SYS_READ   equ 0
+SYS_WRITE  equ 1
+SYS_EXIT   equ 60
+STDIN      equ 0
+STDOUT     equ 1
+BUFSIZE    equ 4096
+CHARNUM    equ 42
+SQUEEZED_L equ 'L'-'1'
+SQUEEZED_R equ 'R'-'1'
+SQUEEZED_T equ 'T'-'1'
 
 ; TODO
-; describe macros
 ; rewrite show
-; describe process
-; magic values in process
-; magic values in macros
-; dont do inverse of T
+; dont do inverse of T?
+; use loop instruction?
 
 global _start
 
+; checks if char is in range ['1'; 'Z'] and subtracts '1'
+; argument is modified to be in range [0; CHARNUM)
 %macro  squeeze 1
-	sub %1, 0x31
-	cmp %1, 0x29
-	ja exit_failure
+	sub %1, '1'
+	cmp %1, CHARNUM
+	jae exit_failure
 %endmacro
 
+; expects argument to be in range [0; CHARNUM)
+; modifies it to be in range ['1'; 'Z']
 %macro  unsqueeze 1
-	add %1, 0x31
+	add %1, '1'
 %endmacro
 
-%macro  incmod 2
+; adds two values modulo CHARNUM
+; stores result in first argument
+; sum of arguments should be less than 2 * CHARNUM
+%macro  addmod 2
 	add %1, %2
 	fastmod %1
 %endmacro
 
+; computes (argument % CHARNUM)
+; stores result in argument
+; argument should be less than 2 * CHARNUM
 %macro fastmod 1
 	cmp %1, CHARNUM
 	jb %%end
@@ -40,13 +49,13 @@ global _start
 %endmacro
 
 section .bss
+
 buf: resb BUFSIZE
 L:   resd 3 * CHARNUM
 R:   resd 2 * CHARNUM
 T:   resd 2 * CHARNUM
 Li:  resd 2 * CHARNUM
 Ri:  resd 3 * CHARNUM
-Ti:  resd 2 * CHARNUM
 key: resd 2
 
 
@@ -200,45 +209,43 @@ _start:
 	mov rdi, Li
 	call inverse_buf
 
+	; calculate inverse of rotor T to validate using Ri helper buffer
+	;mov rsi, T
+	;mov rdi, Ri
+	;call inverse_buf
+
 	; calculate inverse of rotor R and save it into Ri
 	mov rsi, R
 	mov rdi, Ri
 	call inverse_buf
 
-	; calculate inverse of rotor T and save it into Ti
-	mov rsi, T
-	mov rdi, Ti
-	call inverse_buf
 	; validate cycles of rotor T
-	; inverse_buf did not modify rsi, so there is no need to do any mov
+	mov rsi, T
 	call validate_cycles
 
 
-	; extend buffers Li, R, T, Ti, in a way that buf[i] == buf[i + CHARNUM]
+	; extend buffers Li, R, T, Ti using repeat_buf, in a way
+	; that buf[i] == buf[i + CHARNUM], i ∈  [0, CHARNUM)
 	mov rsi, Li
 	mov rdx, CHARNUM
 	call repeat_buf
-
-	mov rsi, R
-	; repeat_buf did not modify rdx, so there is no need to do any mov
+	mov rsi, R ; previous repeat_buf did not modify rdx
+	call repeat_buf
+	mov rsi, T ; previous repeat_buf did not modify rdx
 	call repeat_buf
 
-	mov rsi, T
-	call repeat_buf
-
-	; extend buffers Li, R, T, Ti, in a way that buf[i] == buf[i + CHARNUM]
-	; and buf[i] == buf[i + 2 * CHARNUM]
+	; extend buffers Li, R, T, Ti using repeat_buf, in a way
+	; that buf[i] == buf[i + CHARNUM] and buf[i] == buf[i + 2 * CHARNUM]
 	mov rsi, L
 	mov rdx, CHARNUM * 2
 	call repeat_buf
-
-	mov rsi, Ri
+	mov rsi, Ri ; previous repeat_buf did not modify rdx
 	call repeat_buf
 
 	; by extending rotor buffers in such way number of modulo operations
 	; in later permutation processing can be reduced
 
-	; load keys into persistent registers
+	; load key into persistent registers
 	mov r14d, dword [key] ; l
 	mov r15d, dword [key + 4] ; r
 
@@ -257,7 +264,7 @@ main_loop:
 	; if status > 0, then rax contains info about count of read bytes
 
 	; process rax bytes from buff
-	mov rdi, rax
+	mov rdx, rax
 	call process
 
 	; display rax bytes from buf
@@ -267,60 +274,81 @@ main_loop:
 
 	jmp main_loop
 
-; rdi - count
+; encrypt string in buf
+; rdx - string length
+; expects to have
+;	L, Li, T, R, Ri initialized
+;	key in registers r14d, r15d
+; does not modify argument
+; modifies value of rax, rcx, r14, r15, r10, r11
 process:
 	xor eax, eax
 process_loop:
-	movzx ecx, byte [buf + rax] ; get byte from buffer
+	; get character from string
+	movzx ecx, byte [buf + rax]
+	; change rage of ecx to [0; CHARNUM)
 	squeeze ecx
 
-	incmod r15d, 1
+	; update r from key
+	addmod r15d, 1
 
-	; if (r15d == 27 || r15d == 33 || r15d == 35) ebx := 1 else ebx := 0
 	xor r10d, r10d
-	cmp r15d, 27
+	; set r10d to 1 if unsqueezed value of r equals to one of 'L', 'R', 'T'
+	cmp r15d, SQUEEZED_L
 	sete r10b
-
 	xor r11d, r11d
-	cmp r15b, 33
+	cmp r15d, SQUEEZED_R
+	sete r11b
+	or r10d, r11d
+	xor r11d, r11d
+	cmp r15b, SQUEEZED_T
 	sete r11b
 	or r10d, r11d
 
-	xor r11d, r11d
-	cmp r15b, 35
-	sete r11b
-	or r10d, r11d
+	; update l from key using value of r10d (which can be 0 or 1)
+	addmod r14d, r10d
 
-	incmod r14d, r10d
+	; key (r14d, r15d) is now updated
+	; starting to encrypt byte loaded to ecx
 
-	add ecx, r15d
-	mov ecx, [R + ecx * 4]
+	add ecx, r15d ; shift by r
+	; ecx ∈  [0, CHARNUM * 2), modulo not needed (length of R is CHARNUM*2)
+	mov ecx, [R + ecx * 4] ; permutate using rotor R
+	add ecx, CHARNUM ; add to prevent going below 0
+	sub ecx, r15d ; negative shift by r
+
+	add ecx, r14d ; shift by l
+	; ecx ∈  [0, CHARNUM * 3), modulo not needed (length of L is CHARNUM*3)
+	mov ecx, [L + ecx * 4] ; permutate using rotor L
 	add ecx, CHARNUM
-	sub ecx, r15d
+	sub ecx, r14d ; negative shift by l
 
-	add ecx, r14d
-	mov ecx, [L + ecx * 4]
+	; ecx ∈  [0, CHARNUM * 2), modulo not needed (length of T is CHARNUM*2)
+	mov ecx, [T + ecx * 4] ; permutate using rotor T
+
+	add ecx, r14d ; shift by l
+	; ecx ∈  [0, CHARNUM * 2), modulo not needed (length of Li is CHARNUM*2)
+	mov ecx, [Li + ecx * 4] ; inverse permutate using rotor L
 	add ecx, CHARNUM
-	sub ecx, r14d
+	sub ecx, r14d ; negative shift by l
 
-	mov ecx, [T + ecx * 4]
-
-	add ecx, r14d
-	mov ecx, [Li + ecx * 4]
+	add ecx, r15d ; shift by r
+	; ecx ∈  [0, CHARNUM * 3), modulo not needed (length of Ri is CHARNUM*3)
+	mov ecx, [Ri + ecx * 4] ; inverse permutate using rotor R
 	add ecx, CHARNUM
-	sub ecx, r14d
+	sub ecx, r15d ; negative shift by r
 
-	add ecx, r15d
-	mov ecx, [Ri + ecx * 4]
-	add ecx, CHARNUM
-	sub ecx, r15d
-	fastmod ecx
+	; finished encryting byte loaded to ecs
 
-	unsqueeze ecx
-	mov byte [buf + rax], cl
+	; ecx ∈  [0, CHARNUM * 2)
+	fastmod ecx ; reducing to [0, CHARNUM)
+	unsqueeze ecx ; transforminig into letters
 
+	mov byte [buf + rax], cl ; saving encrypted byte into buf
+
+	; looping
 	inc eax
-	cmp eax, edi
+	cmp eax, edx
 	jne process_loop
 
 	ret
