@@ -106,18 +106,20 @@ inverse_buf_loop:
 	jne inverse_buf_loop
 	ret
 
-; rdi - adres src
-; nie modyfikuje argumentów
+; validates presence of 21 2-cycles for given permutation of length CHARNUM
+; rsi - source dword array address
+; does not modify arguments
+; modifies value of rax, rcx, rdx
 validate_cycles:
-	xor eax, eax
+	xor eax, eax ; use eax as loop counter
 validate_cycles_loop:
 
-	mov ecx, [rdi + rax * 4]
-	mov edx, [rdi + rcx * 4]
+	mov ecx, [rsi + rax * 4] ; load src[counter]
+	mov edx, [rsi + rcx * 4] ; load src[src[counter]]
 
-	cmp eax, edx
+	cmp eax, edx ; assert that src[src[counter]] == counter
 	jne exit_failure
-	cmp eax, ecx
+	cmp eax, ecx ; assert that src[counter] != counter
 	je exit_failure
 
 	inc eax
@@ -125,19 +127,116 @@ validate_cycles_loop:
 	jne validate_cycles_loop
 	ret
 
-; rdi - adres src
-repeat_buf:
-	xor eax, eax
-repeat_buf_loop:
+; copy chunk of memory from source to destination address
+; source and destination spaces can interlap
+; rsi - source dword array address
+; rdi - destination dword array address
+; rdx - number of dwords to copy
+; does not modify arguments
+; modifies value of rax, rcx
+dwordcpy:
+	xor eax, eax ; use eax as loop counter
+dwordcpy_loop:
 
-	mov ecx, [rdi + rax * 4]
-	mov [rdi + rax * 4 + CHARNUM*4], ecx
+	; copy single dword
+	mov ecx, [rsi + rax * 4]
+	mov [rdi + rax * 4], ecx
 
 	inc eax
-	cmp eax, CHARNUM
-	jne repeat_buf_loop
+	cmp eax, edx
+	jne dwordcpy_loop
 	ret
 
+; extend contents of dword array of size CHARNUM to size CHARNUM + rdx
+; by prefix duplication
+; rsi - source dword array address
+; rdx - size extention
+; does not modify arguments
+; modifies value of rax, rcx, rdi
+repeat_buf:
+	lea rdi, [rsi + CHARNUM * 4]
+	call dwordcpy
+	ret
+
+
+_start:
+	; check argument count
+	cmp qword [rsp], 5
+	jne exit_failure
+
+	mov rsi, [rsp + 8 * 2] ; load argv[1] to rdi
+	mov rdi, L
+	mov rdx, 42
+	call parse_buf
+
+	mov rsi, [rsp + 8 * 3]
+	mov rdi, R
+	call parse_buf
+
+	mov rsi, [rsp + 8 * 4]
+	mov rdi, T
+	call parse_buf
+
+	mov rsi, [rsp + 8 * 5]
+	mov rdi, key
+	mov rdx, 2
+	call parse_buf
+
+	mov rsi, L
+	mov rdi, Li
+	call inverse_buf
+
+	mov rsi, R
+	mov rdi, Ri
+	call inverse_buf
+
+	mov rsi, T
+	mov rdi, Ti
+	call inverse_buf
+	; inverse_buf does not modify rsi, so there is no need to do any mov
+	call validate_cycles
+
+
+	mov rsi, Li
+	mov rdx, CHARNUM
+	call repeat_buf
+
+	mov rsi, R
+	call repeat_buf
+
+	mov rsi, T
+	call repeat_buf
+
+	mov rsi, Ti
+	call repeat_buf
+
+	mov rsi, L
+	mov rdx, CHARNUM * 2
+	call repeat_buf
+
+	mov rsi, Ri
+	call repeat_buf
+
+main_loop:
+	; read string from stdin to buf
+	mov eax, SYS_READ
+	mov edi, STDIN
+	mov rsi, buf
+	mov rdx, BUFSIZE
+	syscall
+
+	; check rax for return status
+	cmp rax, 0
+	je exit_success ; if status == 0 exit normally
+	jl exit_failure ; if status < 0, then exit with non zero code
+
+	mov rdi, rax ; ustaw argument funkcji process
+	call process
+	mov rdi, rax ; ustaw argument funkcji show
+	mov rsi, buf ; ustaw argument funkcji show
+	call show
+
+	jmp main_loop
 
 ; rdi - count
 process:
@@ -230,80 +329,6 @@ show:
 	jmp show
 show_end:
 	ret
-
-_start:
-	; check argument count
-	cmp dword [rsp], 5
-	jne exit_failure
-
-	mov rsi, [rsp + 8 * 2] ; load argv[1] to rdi
-	mov rdi, L
-	mov rdx, 42
-	call parse_buf
-
-	mov rsi, [rsp + 8 * 3]
-	mov rdi, R
-	call parse_buf
-
-	mov rsi, [rsp + 8 * 4]
-	mov rdi, T
-	call parse_buf
-
-	mov rsi, [rsp + 8 * 5]
-	mov rdi, key
-	mov rdx, 2
-	call parse_buf
-
-	mov rsi, L
-	mov rdi, Li
-	call inverse_buf
-
-	mov rsi, R
-	mov rdi, Ri
-	call inverse_buf
-
-	mov rsi, T
-	mov rdi, Ti
-	call inverse_buf
-	call validate_cycles
-
-	mov rdi, L
-	call repeat_buf
-	mov rdi, L + CHARNUM * 4
-	call repeat_buf
-	mov rdi, Li
-	call repeat_buf
-	mov rdi, R
-	call repeat_buf
-	mov rdi, Ri
-	call repeat_buf
-	mov rdi, Ri + CHARNUM * 4
-	call repeat_buf
-	mov rdi, T
-	call repeat_buf
-	mov rdi, Ti
-	call repeat_buf
-
-main_loop:
-	; read string from stdin to buf
-	mov eax, SYS_READ
-	mov edi, STDIN
-	mov rsi, buf
-	mov rdx, BUFSIZE
-	syscall
-
-	; check rax for return status
-	cmp rax, 0
-	je exit_success ; if status == 0 exit normally
-	jl exit_failure ; if status < 0, then exit with non zero code
-
-	mov rdi, rax ; ustaw argument funkcji process
-	call process
-	mov rdi, rax ; ustaw argument funkcji show
-	mov rsi, buf ; ustaw argument funkcji show
-	call show
-
-	jmp main_loop
 
 exit_success:
     mov eax, SYS_EXIT
