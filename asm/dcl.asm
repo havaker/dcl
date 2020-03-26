@@ -7,6 +7,11 @@ BUFSIZE   equ 4096
 CHARNUM   equ 42
 TABSIZE   equ CHARNUM*2
 
+; TODO
+; describe macros
+; rewrite show
+; describe process
+
 global _start
 
 %macro  squeeze 1
@@ -158,50 +163,61 @@ repeat_buf:
 	call dwordcpy
 	ret
 
-
 _start:
 	; check argument count
 	cmp qword [rsp], 5
 	jne exit_failure
 
-	mov rsi, [rsp + 8 * 2] ; load argv[1] to rdi
+	; load and parse first argument (argv[1]) as rotor L
+	mov rsi, [rsp + 8 * 2]
 	mov rdi, L
-	mov rdx, 42
+	mov rdx, CHARNUM ; set expected length
 	call parse_buf
 
+	; load and parse second argument (argv[2]) as rotor R
+	; previous parse_buf did not modify rdx, no need to mov again
 	mov rsi, [rsp + 8 * 3]
 	mov rdi, R
 	call parse_buf
 
+	; load and parse third argument (argv[3]) as rotor T
+	; previous parse_buf did not modify rdx, no need to mov again
 	mov rsi, [rsp + 8 * 4]
 	mov rdi, T
 	call parse_buf
 
+	; load and parse fourth argument (argv[4]) as key (with a of length 2)
 	mov rsi, [rsp + 8 * 5]
 	mov rdi, key
-	mov rdx, 2
+	mov rdx, 2 ; set expected length
 	call parse_buf
 
+	; calculate inverse of rotor L and save it into Li
 	mov rsi, L
 	mov rdi, Li
 	call inverse_buf
 
+	; calculate inverse of rotor R and save it into Ri
 	mov rsi, R
 	mov rdi, Ri
 	call inverse_buf
 
+	; calculate inverse of rotor T and save it into Ti
 	mov rsi, T
 	mov rdi, Ti
 	call inverse_buf
-	; inverse_buf does not modify rsi, so there is no need to do any mov
+	; validate cycles of rotor T
+	; inverse_buf did not modify rsi, so there is no need to do any mov
 	call validate_cycles
 
 
+	; extend buffers Li, R, T, Ti, in a way that buf[i] == buf[i + CHARNUM]
 	mov rsi, Li
 	mov rdx, CHARNUM
 	call repeat_buf
 
 	mov rsi, R
+	; repeat_buf did not modify rdx, so there is no need to do any mov
 	call repeat_buf
 
 	mov rsi, T
@@ -210,12 +226,21 @@ _start:
 	mov rsi, Ti
 	call repeat_buf
 
+	; extend buffers Li, R, T, Ti, in a way that buf[i] == buf[i + CHARNUM]
+	; and buf[i] == buf[i + 2 * CHARNUM]
 	mov rsi, L
 	mov rdx, CHARNUM * 2
 	call repeat_buf
 
 	mov rsi, Ri
 	call repeat_buf
+
+	; by extending rotor buffers in such way number of modulo operations
+	; in later permutation processing can be reduced
+
+	; load keys into persistent registers
+	mov r14d, dword [key] ; l
+	mov r15d, dword [key + 4] ; r
 
 main_loop:
 	; read string from stdin to buf
@@ -229,11 +254,15 @@ main_loop:
 	cmp rax, 0
 	je exit_success ; if status == 0 exit normally
 	jl exit_failure ; if status < 0, then exit with non zero code
+	; if status > 0, then rax contains info about count of read bytes
 
-	mov rdi, rax ; ustaw argument funkcji process
+	; process rax bytes from buff
+	mov rdi, rax
 	call process
-	mov rdi, rax ; ustaw argument funkcji show
-	mov rsi, buf ; ustaw argument funkcji show
+
+	; display rax bytes from buf
+	mov rdi, rax
+	mov rsi, buf
 	call show
 
 	jmp main_loop
@@ -241,53 +270,50 @@ main_loop:
 ; rdi - count
 process:
 	xor eax, eax
-	mov r8d, dword [key] ; l
-	mov r9d, dword [key + 4] ; r
 process_loop:
-
 	movzx ecx, byte [buf + rax] ; get byte from buffer
 	squeeze ecx
 
-	incmod r8d, 1
+	incmod r14d, 1
 
-	; if (r9d == 27 || r9d == 33 || r9d == 35) ebx := 1 else ebx := 0
+	; if (r15d == 27 || r15d == 33 || r15d == 35) ebx := 1 else ebx := 0
 	xor r10d, r10d
-	cmp r8d, 27
+	cmp r14d, 27
 	sete r10b
 
 	xor r11d, r11d
-	cmp r8b, 33
+	cmp r14b, 33
 	sete r11b
 	or r10d, r11d
 
 	xor r11d, r11d
-	cmp r8b, 35
+	cmp r14b, 35
 	sete r11b
 	or r10d, r11d
 
-	incmod r9d, r10d
+	incmod r15d, r10d
 
-	add ecx, r8d
+	add ecx, r14d
 	mov ecx, [R + ecx * 4]
 	add ecx, CHARNUM
-	sub ecx, r8d
+	sub ecx, r14d
 
-	add ecx, r9d
+	add ecx, r15d
 	mov ecx, [L + ecx * 4]
 	add ecx, CHARNUM
-	sub ecx, r9d
+	sub ecx, r15d
 
 	mov ecx, [T + ecx * 4]
 
-	add ecx, r9d
+	add ecx, r15d
 	mov ecx, [Li + ecx * 4]
 	add ecx, CHARNUM
-	sub ecx, r9d
+	sub ecx, r15d
 
-	add ecx, r8d
+	add ecx, r14d
 	mov ecx, [Ri + ecx * 4]
 	add ecx, CHARNUM
-	sub ecx, r8d
+	sub ecx, r14d
 	fastmod ecx
 
 	unsqueeze ecx
@@ -296,9 +322,6 @@ process_loop:
 	inc eax
 	cmp eax, edi
 	jne process_loop
-
-	mov dword [key], r8d; l
-	mov dword [key + 4], r9d ; r
 
 	ret
 
