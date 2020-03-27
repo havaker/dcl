@@ -2,7 +2,7 @@ global _start
 
 ; TODO
 ; dont do inverse of T?
-; align stack before syscall?
+; remove gcc code
 
 SYS_READ   equ 0
 SYS_WRITE  equ 1
@@ -41,6 +41,17 @@ SQUEEZED_T equ 'T'-'1'
 ; stores result in argument
 ; argument should be less than 2 * CHARNUM
 %macro fastmod 1
+    ; gcc
+    ;mov    r13d,%1
+    ;shr    r13b,1
+    ;movzx  r12d,r13b
+    ;lea    r13d,[r12+r12*2]
+    ;shl    r13d,0x4
+    ;add    r13d,r12d
+    ;mov    r12d,0x2a
+    ;shr    r13w,0xa
+    ;imul   r13d,r12d
+    ;sub    %1,r13d
     cmp %1, CHARNUM
     jb %%end
     sub %1, CHARNUM
@@ -175,7 +186,7 @@ parse_buf_loop:
 
     movzx ecx, byte [rsi + rax] ; copy byte from source string
     squeeze ecx ; verify and transform
-    mov dword [rdi + rax * 4], ecx ; save it in destination string
+    mov dword [rdi + rax * 4], ecx ; save it in destination array
 
     inc eax
     jmp parse_buf_loop
