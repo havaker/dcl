@@ -246,26 +246,6 @@ validate_cycles_loop:
     jne validate_cycles_loop
     ret
 
-; copy chunk of memory from source to destination address
-; source and destination spaces can interlap
-; rsi - source dword array address
-; rdi - destination dword array address
-; rdx - number of dwords to copy
-; does not modify arguments
-; modifies value of rax, rcx
-dwordcpy:
-    xor eax, eax ; use eax as loop counter
-dwordcpy_loop:
-
-    ; copy single dword
-    mov ecx, [rsi + rax * 4]
-    mov [rdi + rax * 4], ecx
-
-    inc eax
-    cmp eax, edx
-    jne dwordcpy_loop
-    ret
-
 ; extend contents of dword array of size CHARNUM to size CHARNUM + rdx
 ; by prefix duplication
 ; rsi - source dword array address
@@ -274,7 +254,16 @@ dwordcpy_loop:
 ; modifies value of rax, rcx, rdi
 repeat_buf:
     lea rdi, [rsi + CHARNUM * 4]
-    call dwordcpy
+    xor eax, eax ; use eax as loop counter
+repeat_buf_loop:
+
+    ; copy single dword
+    mov ecx, [rsi + rax * 4]
+    mov [rdi + rax * 4], ecx
+
+    inc eax
+    cmp eax, edx
+    jne repeat_buf_loop
     ret
 
 ; encrypt string in buffer
@@ -282,6 +271,7 @@ repeat_buf:
 ; expects to have
 ;   L, Li, T, R, Ri initialized
 ;   key in registers r14d, r15d
+;   buffer address in BUFADDR
 ; does not modify argument
 ; modifies value of rax, rcx, r14, r15, r10, r11
 process:
