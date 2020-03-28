@@ -9,7 +9,7 @@ SYS_WRITE  equ 1
 SYS_EXIT   equ 60
 STDIN      equ 0
 STDOUT     equ 1
-BUFSIZE    equ 4096
+BUFSIZE    equ 4096 * 16
 CHARNUM    equ 42
 SQUEEZED_L equ 'L'-'1'
 SQUEEZED_R equ 'R'-'1'
@@ -41,21 +41,9 @@ SQUEEZED_T equ 'T'-'1'
 ; stores result in argument
 ; argument should be less than 2 * CHARNUM
 %macro fastmod 1
-    ; gcc
-    ;mov    r13d,%1
-    ;shr    r13b,1
-    ;movzx  r12d,r13b
-    ;lea    r13d,[r12+r12*2]
-    ;shl    r13d,0x4
-    ;add    r13d,r12d
-    ;mov    r12d,0x2a
-    ;shr    r13w,0xa
-    ;imul   r13d,r12d
-    ;sub    %1,r13d
+    lea r13d, [%1 - CHARNUM]
     cmp %1, CHARNUM
-    jb %%end
-    sub %1, CHARNUM
-    %%end:
+    cmovae %1, r13d
 %endmacro
 
 section .bss
