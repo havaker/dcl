@@ -2,18 +2,20 @@ global _start
 
 ; TODO
 ; dont do inverse of T?
-; remove gcc code
 
 SYS_READ   equ 0
 SYS_WRITE  equ 1
 SYS_EXIT   equ 60
 STDIN      equ 0
 STDOUT     equ 1
-BUFSIZE    equ 4096 * 16
+BUFSIZE    equ 1024 * 64
 CHARNUM    equ 42
 SQUEEZED_L equ 'L'-'1'
 SQUEEZED_R equ 'R'-'1'
 SQUEEZED_T equ 'T'-'1'
+
+; name of register in which address of io buffer is stored
+%define BUFADDR r12
 
 ; checks if char is in range ['1'; 'Z'] and subtracts '1'
 ; argument is modified to be in range [0; CHARNUM)
@@ -47,9 +49,6 @@ SQUEEZED_T equ 'T'-'1'
 %endmacro
 
 section .bss
-
-buf: resb BUFSIZE ; buffer used for io operations
-
 ; arrays holding informations about rotors
 L:   resd 3*CHARNUM
 R:   resd 2*CHARNUM
@@ -135,11 +134,15 @@ _start:
     mov r14d, dword [key] ; l
     mov r15d, dword [key + 4] ; r
 
+    ; reserve space for io buffer
+    sub rsp, BUFSIZE
+    mov BUFADDR, rsp
+
 main_loop:
     ; read string from stdin to buf
     mov eax, SYS_READ
     mov edi, STDIN
-    mov rsi, buf
+    mov rsi, BUFADDR
     mov rdx, BUFSIZE
     syscall
 
@@ -155,7 +158,7 @@ main_loop:
 
     ; display rax bytes from buf
     ; no need to fill rax, as process does not modify arguments
-    mov rsi, buf
+    mov rsi, BUFADDR
     call show
 
     jmp main_loop
@@ -274,7 +277,7 @@ repeat_buf:
     call dwordcpy
     ret
 
-; encrypt string in buf
+; encrypt string in buffer
 ; rdx - string length
 ; expects to have
 ;   L, Li, T, R, Ri initialized
@@ -285,7 +288,7 @@ process:
     xor eax, eax
 process_loop:
     ; get character from string
-    movzx ecx, byte [buf + rax]
+    movzx ecx, byte [BUFADDR + rax]
     ; change rage of ecx to [0; CHARNUM)
     squeeze ecx
 
@@ -344,7 +347,7 @@ process_loop:
     fastmod ecx ; reducing to [0, CHARNUM)
     unsqueeze ecx ; transforminig into letters
 
-    mov byte [buf + rax], cl ; saving encrypted byte into buf
+    mov byte [BUFADDR + rax], cl ; saving encrypted byte into buffer
 
     ; looping
     inc eax
@@ -367,7 +370,7 @@ show:
 
     ; make write syscall
     ; rdx already filled with count
-    ; rsi already filled with buf address
+    ; rsi already filled with buffer address
     mov eax, SYS_WRITE
     mov edi, STDOUT
     syscall
