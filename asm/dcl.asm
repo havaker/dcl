@@ -1,21 +1,23 @@
 global _start
 
-; TODO
-; dont do inverse of T?
-
 SYS_READ   equ 0
 SYS_WRITE  equ 1
 SYS_EXIT   equ 60
 STDIN      equ 0
 STDOUT     equ 1
-BUFSIZE    equ 1024 * 64
-CHARNUM    equ 42
+BUFSIZE    equ 1024 * 64 ; size of IO buffer
+CHARNUM    equ 42        ; alphabet size
+ARGCOUNT   equ 5         ; count of arguments passed to ./dcl
 SQUEEZED_L equ 'L'-'1'
 SQUEEZED_R equ 'R'-'1'
 SQUEEZED_T equ 'T'-'1'
 
-; name of register in which address of io buffer is stored
+; alias of register in which address of io buffer is stored
 %define BUFADDR r12
+
+; aliases of registers in which key is stored
+%define KEY_L r14d
+%define KEY_R r15d
 
 ; checks if char is in range ['1'; 'Z'] and subtracts '1'
 ; argument is modified to be in range [0; CHARNUM)
@@ -34,6 +36,7 @@ SQUEEZED_T equ 'T'-'1'
 ; adds two values modulo CHARNUM
 ; stores result in first argument
 ; sum of arguments should be less than 2 * CHARNUM
+; modifies value of r8
 %macro  addmod 2
     add %1, %2
     fastmod %1
@@ -41,11 +44,12 @@ SQUEEZED_T equ 'T'-'1'
 
 ; computes argument % CHARNUM
 ; stores result in argument
-; argument should be less than 2 * CHARNUM
+; argument should be less than 2 * CHARNUM, and unsigned
+; modifies value of r8
 %macro fastmod 1
-    lea r13d, [%1 - CHARNUM]
-    cmp %1, CHARNUM
-    cmovae %1, r13d
+    lea r8d, [%1 - CHARNUM] ; load %1 - CHARNUM to r8d
+    cmp %1, CHARNUM ; if (%1 > CHARNUM) %1 := r8d
+    cmovae %1, r8d
 %endmacro
 
 section .bss
@@ -63,7 +67,7 @@ section .text
 
 _start:
     ; check argument count
-    cmp qword [rsp], 5
+    cmp qword [rsp], ARGCOUNT
     jne exit_failure
 
     ; load and parse first argument (argv[1]) as rotor L
@@ -94,11 +98,6 @@ _start:
     mov rsi, L
     mov rdi, Li
     call inverse_buf
-
-    ; calculate inverse of rotor T to validate using Ri helper buffer
-    ;mov rsi, T
-    ;mov rdi, Ri
-    ;call inverse_buf
 
     ; calculate inverse of rotor R and save it into Ri
     mov rsi, R
@@ -131,8 +130,8 @@ _start:
     ; in later permutation processing can be reduced
 
     ; load key into persistent registers
-    mov r14d, dword [key] ; l
-    mov r15d, dword [key + 4] ; r
+    mov KEY_L, dword [key] ; l
+    mov KEY_R, dword [key + 4] ; r
 
     ; reserve space for io buffer
     sub rsp, BUFSIZE
@@ -156,8 +155,8 @@ main_loop:
     mov rdx, rax
     call process
 
-    ; display rax bytes from buf
-    ; no need to fill rax, as process does not modify arguments
+    ; display rdx bytes from buf
+    ; no need to fill rdx, as process does not modify arguments
     mov rsi, BUFADDR
     call show
 
@@ -187,7 +186,7 @@ parse_buf_end:
     jne exit_failure
     ret
 
-; fills dword array of length CHARNUM with sepcified value
+; fills dword array of length CHARNUM with specified value
 ; rdi - destination dword array adress
 ; rdx - value
 ; does not modify arguments
@@ -270,10 +269,10 @@ repeat_buf_loop:
 ; rdx - string length
 ; expects to have
 ;   L, Li, T, R, Ri initialized
-;   key in registers r14d, r15d
+;   key in registers KEY_L, KEY_R
 ;   buffer address in BUFADDR
 ; does not modify argument
-; modifies value of rax, rcx, r14, r15, r10, r11
+; modifies value of rax, rcx, KEY_L, KEY_R, r8, r10, r11
 process:
     xor eax, eax
 process_loop:
@@ -282,54 +281,54 @@ process_loop:
     ; change rage of ecx to [0; CHARNUM)
     squeeze ecx
 
-    ; update r from key
-    addmod r15d, 1
+    ; update from key r
+    addmod KEY_R, 1
 
     xor r10d, r10d
-    ; set r10d to 1 if unsqueezed value of r equals to one of 'L', 'R', 'T'
-    cmp r15d, SQUEEZED_L
+    ; set r10d to 1 if KEY_R equals to one of squeezed 'L', 'R', 'T'
+    cmp KEY_R, SQUEEZED_L
     sete r10b
     xor r11d, r11d
-    cmp r15d, SQUEEZED_R
+    cmp KEY_R, SQUEEZED_R
     sete r11b
     or r10d, r11d
     xor r11d, r11d
-    cmp r15b, SQUEEZED_T
+    cmp KEY_R, SQUEEZED_T
     sete r11b
     or r10d, r11d
 
-    ; update l from key using value of r10d (which can be 0 or 1)
-    addmod r14d, r10d
+    ; update key l using value of r10d (which can be 0 or 1)
+    addmod KEY_L, r10d
 
-    ; key (r14d, r15d) is now updated
+    ; key (KEY_L, KEY_R) is now updated
     ; starting to encrypt byte loaded to ecx
 
-    add ecx, r15d ; shift by r
+    add ecx, KEY_R ; shift by r
     ; ecx ∈  [0, CHARNUM * 2), modulo not needed (length of R is CHARNUM*2)
     mov ecx, [R + ecx * 4] ; permutate using rotor R
     add ecx, CHARNUM ; add to prevent going below 0
-    sub ecx, r15d ; negative shift by r
+    sub ecx, KEY_R ; negative shift by r
 
-    add ecx, r14d ; shift by l
+    add ecx, KEY_L ; shift by l
     ; ecx ∈  [0, CHARNUM * 3), modulo not needed (length of L is CHARNUM*3)
     mov ecx, [L + ecx * 4] ; permutate using rotor L
     add ecx, CHARNUM
-    sub ecx, r14d ; negative shift by l
+    sub ecx, KEY_L ; negative shift by l
 
     ; ecx ∈  [0, CHARNUM * 2), modulo not needed (length of T is CHARNUM*2)
     mov ecx, [T + ecx * 4] ; permutate using rotor T
 
-    add ecx, r14d ; shift by l
+    add ecx, KEY_L ; shift by l
     ; ecx ∈  [0, CHARNUM * 2), modulo not needed (length of Li is CHARNUM*2)
     mov ecx, [Li + ecx * 4] ; inverse permutate using rotor L
     add ecx, CHARNUM
-    sub ecx, r14d ; negative shift by l
+    sub ecx, KEY_L ; negative shift by l
 
-    add ecx, r15d ; shift by r
+    add ecx, KEY_R ; shift by r
     ; ecx ∈  [0, CHARNUM * 3), modulo not needed (length of Ri is CHARNUM*3)
     mov ecx, [Ri + ecx * 4] ; inverse permutate using rotor R
     add ecx, CHARNUM
-    sub ecx, r15d ; negative shift by r
+    sub ecx, KEY_R ; negative shift by r
 
     ; finished encryting byte loaded to ecs
 
@@ -350,6 +349,7 @@ process_loop:
 ; rdx - byte count
 ; does syscall
 ; modifies arguments
+; modifies value of rsi, rdx, rax, rdi
 show:
     test rdx, rdx
     je show_end
